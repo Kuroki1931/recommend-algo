@@ -1,74 +1,72 @@
 import numpy as np
+from scipy import sparse
 
-def pearson(e1,e2):
-    #入力されたリストのうち、どちらともゼロでない要素のみの相関係数を算出
-    te1=[]
-    te2=[]
-    tmp=np.array(e1)*np.array(e2)
-    for i in range(len(tmp)):
-        if tmp[i]!=0:
-            te1.append(e1[i])
-            te2.append(e2[i])
-    if len(te1)==1:
-        return 0
-    return np.corrcoef(te1,te2)[0,1]
+class MatrixFactorization():
+  def __init__(self, R, X, Y, k, steps=200, alpha=0.01, lamda=0.001, threshold=0.001):
+    self.R = R
+    self.m = R.shape[0]
+    self.n = R.shape[1]
+    self.k = k
+    # initializa U and V
+    self.U = np.random.rand(self.m, self.k)
+    self.V = np.random.rand(self.k, self.n)
+    self.alpha = alpha
+    self.lamda = lamda
+    self.threshold = threshold
+    self.steps = 200
 
-def average(e):
-    #入力されたリストのうち、ゼロでない要素のみの平均を算出
-    n = sum(e)
-    d = len([x for x in e if x!=0])
-    return n/d
+    # preserve user_id list and item_id list
+    self.X = X
+    self.Y = Y
 
-def evaluate(a,y,data,arr):
-    #評価推定値を算出
-    aveA = average(data[a])
-    d=0
-    n=0
-    for i in range(len(data)):
-        if a!=i and data[i][y]!=0:#a自身と、yの評価値がないユーザを除く
-            d+=abs(arr[a][i])
-            n+=arr[a][i]*(data[i][y]-average(data[i]))
-    return aveA+n/d
+  def shuffle_in_unison_scary(self, a, b):
+    rng_state = np.random.get_state()
+    np.random.shuffle(a)
+    np.random.set_state(rng_state)
+    np.random.shuffle(b)
+
+  def fit(self):
+    for step in range(self.steps):
+      error = 0
+      # shuffle the order of the entry
+      self.shuffle_in_unison_scary(self.X,self.Y)
+
+      # update U and V
+      for i in self.X:
+        for j in self.Y:
+          r_ij = self.R[i-1,j-1]
+          if r_ij > 0:
+            err_ij = r_ij - np.dot(self.U[i-1,:], self.V[:,j-1])
+            for q in range(self.k):
+              self.U[i-1,q] += self.alpha * (err_ij * self.V[q, j-i] + self.lamda * self.U[i-1, q])
+              self.V[q, j-1] += self.alpha * (err_ij * self.U[i-1, q] + self.lamda * self.V[q, j-i])
+
+      # approximation
+      R_hat = np.dot(self.U, self.V)
+      # calculate estimation error for observed values
+      for i in self.X:
+        for j in self.Y:
+          r_ij = self.R[i-1, j-1]
+          r_hat_ij = R_hat[i-1, j-1]
+          if r_ij > 0:
+            error += pow(r_ij - r_hat_ij,2)
+      # regularization
+      error += (self.lamda * np.power(self.U,2).sum()) / 2
+      error += (self.lamda * np.power(self.V,2).sum()) / 2
+
+      if error < self.threshold:
+        break
+    return self.U, self.V
 
 
-data = [[0 for i in range(4)] for j in range(4)]
-arr = [[0 for i in range(4)] for j in range(4)]
-eva = [[0 for i in range(4)] for j in range(4)]
+    # R = np.random.randint(6, size=(5, 8), dtype=np.int8)
+R = sparse.csr_matrix(np.random.randint(6, size=(5, 8)), dtype=np.int8)
+X = np.arange(1, 6) # mock for user_id
+Y = np.arange(1, 9) # mock for item_id
 
-# データの入力
-data[0]= [1,3,0,3]
-data[1]= [0,1,3,0]
-data[2]= [2,1,3,1]
-data[3]= [1,3,2,0]
+R.toarray()
 
 
-
-
-# ユーザー間の類似度計算
-for key in range(len(data)):
-    base_customers = data[key]
-    for key2 in range(len(data)):
-        if key == key2:
-            continue
-        target_customers = data[key2]
-        j = pearson(base_customers, target_customers)
-        arr[key][key2] = j
-
-#ユーザ・商品ごとの評価値推定
-for i in range(len(data)):
-    for j in range(len(data[i])):
-        eva[i][j] = evaluate(i,j,data,arr)
-
-# ユーザー間の類似度
-print(' \t  1 \t  2 \t  3 \t  4 ')
-print('1\t{0:2.2f}\t{1:2.2f}\t{2:2.2f}\t{3:2.2f}'.format(arr[0][0], arr[0][1], arr[0][2], arr[0][3]))
-print('2\t{0:2.2f}\t{1:2.2f}\t{2:2.2f}\t{3:2.2f}'.format(arr[1][0], arr[1][1], arr[1][2], arr[1][3]))
-print('3\t{0:2.2f}\t{1:2.2f}\t{2:2.2f}\t{3:2.2f}'.format(arr[2][0], arr[2][1], arr[2][2], arr[2][3]))
-print('4\t{0:2.2f}\t{1:2.2f}\t{2:2.2f}\t{3:2.2f}'.format(arr[3][0], arr[3][1], arr[3][2], arr[3][3]))
-
-#ユーザ・商品ごとの評価値推定値
-print(' \t  1 \t  2 \t  3 \t  4 ')
-print('1\t{0:2.2f}\t{1:2.2f}\t{2:2.2f}\t{3:2.2f}'.format(eva[0][0], eva[0][1], eva[0][2], eva[0][3]))
-print('2\t{0:2.2f}\t{1:2.2f}\t{2:2.2f}\t{3:2.2f}'.format(eva[1][0], eva[1][1], eva[1][2], eva[1][3]))
-print('3\t{0:2.2f}\t{1:2.2f}\t{2:2.2f}\t{3:2.2f}'.format(eva[2][0], eva[2][1], eva[2][2], eva[2][3]))
-print('4\t{0:2.2f}\t{1:2.2f}\t{2:2.2f}\t{3:2.2f}'.format(eva[3][0], eva[3][1], eva[3][2], eva[3][3]))
+mf = MatrixFactorization(R, X, Y, k=2, steps=200)
+U, V = mf.fit()
+print(np.dot(U,V))
